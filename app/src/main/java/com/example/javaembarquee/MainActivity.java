@@ -1,205 +1,232 @@
-package com.example.javaembarquee;
+package fr.aladlahcen.streamapp;
+/* Alaeddine Hedhly et Lahcen Ait Bella*/
 
-import android.Manifest;
-import android.app.DownloadManager;
-import android.content.BroadcastReceiver;
+import android.app.ProgressDialog;
+import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.pm.PackageManager;
-import android.net.Uri;
-import android.net.wifi.p2p.WifiP2pDevice;
-import android.net.wifi.p2p.WifiP2pDeviceList;
-import android.net.wifi.p2p.WifiP2pManager;
-import android.os.Build;
+import android.content.SharedPreferences;
+import android.os.AsyncTask;
+import android.os.Environment;
+import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-import android.net.wifi.WifiManager;
-import com.google.android.material.floatingactionbutton.FloatingActionButton;
-import com.google.android.material.snackbar.Snackbar;
-
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
-import androidx.core.app.ActivityCompat;
-
-import android.view.View;
-
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.ListView;
 import android.widget.Toast;
 
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.URL;
+import java.net.URLConnection;
 import java.util.ArrayList;
-import java.util.List;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
-    private long downloadId;
-    WifiP2pManager manager;
-    WifiP2pManager.Channel channel;
-    BroadcastReceiver receiver;
-    IntentFilter intentFilter;
-    WifiP2pManager.PeerListListener myPeerListListener;
-    WifiManager w;
-    List<WifiP2pDevice> peers=new ArrayList<WifiP2pDevice>();
-    String[] deviceNameArray;
-    WifiP2pDevice[] deviceArray;
 
-    @Override
+	public static final String TAG = "MainActivity";
+	public static UUID uuid = UUID.fromString("fb36491d-7c21-40ef-9f67-a63237b5bbea");
+	String folderPath;
+    ListView filelist;
+    ArrayAdapter<String>adapter;
+    SharedPreferences settings;
+
+
+	// Boolean telling us whether a download is in progress, so we don't trigger overlapping
+	// downloads with consecutive button clicks.
+	private boolean mDownloading = false;
+
+	private ProgressDialog pDialog;
+
+	@Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        Toolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
-        registerReceiver(onDownloadComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
-        //verifie if wifi is enable
-        w=(WifiManager)getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        FloatingActionButton fab2 = findViewById(R.id.fab2);
-        //fab2.setVisibility(View.GONE);
-        //serveur initialisation
-        manager = (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
-        channel = manager.initialize(this, getMainLooper(), null);
-        receiver = new WiFiDirectBroadcastReceiver(manager, channel, this);
-        intentFilter = new IntentFilter();
-        intentFilter.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);
-        intentFilter.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);
-        intentFilter.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
-        intentFilter.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);
-        final FloatingActionButton fab = findViewById(R.id.fab);
-        fab.setVisibility(View.GONE);
-        fab2.setOnClickListener(new View.OnClickListener() {
+        settings = getSharedPreferences("Settings", Context.MODE_PRIVATE);
+
+        folderPath =  settings.getString("serverDir", Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath());
+        filelist = (ListView) findViewById(R.id.FileList);
+
+        adapter = new ArrayAdapter<String>(this,
+                android.R.layout.simple_list_item_1);
+        filelist.setAdapter(adapter);
+        filelist.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
-            public void onClick(View view) {
-                //stream server
-                /*w.setWifiEnabled(true);
-                if (w.isWifiEnabled()) {
-                    Toast.makeText(MainActivity.this, "wifi is on", Toast.LENGTH_SHORT).show();
-                }
-                else {
-                    Toast.makeText(MainActivity.this, "wifi is off", Toast.LENGTH_SHORT).show();
-                }*/
-                if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                    // TODO: Consider calling
-                    //    ActivityCompat#requestPermissions
-                    manager.discoverPeers(channel, new WifiP2pManager.ActionListener() {
-                        @Override
-                        public void onSuccess() {
-
-                            Toast.makeText(MainActivity.this, "Devices discovered", Toast.LENGTH_SHORT).show();
-                        }
-
-                        @Override
-                        public void onFailure(int reasonCode) {
-                            Toast.makeText(MainActivity.this, "Devices not discoverd", Toast.LENGTH_SHORT).show();
-                        }
-                    });
-                    return;
-                }
-                /*Snackbar.make(view, "the video is being downloaded please be patient", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();*/
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                Intent myintent = new Intent(MainActivity.this,VideoPlayerActivity.class);
+                myintent.putExtra("VideoPath" , folderPath + File.separator+ adapter.getItem(position) );
+                startActivity(myintent);
             }
         });
-        fab.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                beginDownload();
-                fab.setVisibility(View.GONE);
-                Snackbar.make(view, "the video is being downloaded please be patient", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();
-            }
-        });
+		filelist.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
+			@Override
+			public boolean onItemLongClick(AdapterView<?> adapterView, View view, int position, long id) {
+				if (BluetoothAdapter.getDefaultAdapter().getScanMode() !=
+						BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE) {
+					Intent discoverableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
+					discoverableIntent.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300);
+					startActivity(discoverableIntent);
+				}
+				String filename = folderPath + File.separator+ adapter.getItem(position);
+				new StreamBTServerAsync( filename, getApplicationContext() ).execute();
+				new StreamWIFIServerAsync(8888, filename, getApplicationContext() ).execute();
+				Toast.makeText(MainActivity.this, "stream server waiting  " , Toast.LENGTH_SHORT).show();
+				return true;
+			}
+		});
+
+		pDialog = new ProgressDialog(this);
+		pDialog.setMessage("Downloading... Please wait...");
+		pDialog.setIndeterminate(false);
+		pDialog.setCancelable(true);
+		pDialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
+    }
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.main, menu);
+        return true;
     }
 
     @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.menu_main, menu);
-        return true;
-    }
-    private void beginDownload(){
-        File file = new File(getExternalFilesDir(null),"test");
-        DownloadManager.Request request=null;
-        //verifier si la version d'android est plus gande que naugat
-        if(android.os.Build.VERSION.SDK_INT>= android.os.Build.VERSION_CODES.N){
-            request= new DownloadManager.Request(Uri.parse("https://ia800201.us.archive.org/22/items/ksnn_compilation_master_the_internet/ksnn_compilation_master_the_internet_512kb.mp4"))
-                    .setTitle("Test")
-                    .setDescription("en-cour de telechargement")
-                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-                    .setDestinationUri(Uri.fromFile(file))
-                    .setRequiresCharging(false)
-                    .setAllowedOverMetered(true)
-                    .setAllowedOverRoaming(true);
-            //
-        }
-        else{
-            request= new DownloadManager.Request(Uri.parse("https://ia800201.us.archive.org/22/items/ksnn_compilation_master_the_internet/ksnn_compilation_master_the_internet_512kb.mp4"))
-                    .setTitle("Test")
-                    .setDescription("en-cour de telechargement")
-                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-                    .setDestinationUri(Uri.fromFile(file))
-                    .setAllowedOverRoaming(true);
-        }
-        DownloadManager downloadManager = (DownloadManager)getSystemService(DOWNLOAD_SERVICE);
-        downloadId= downloadManager.enqueue(request);
+    public void onResume(){
+        super.onResume();
+        folderPath =  settings.getString("serverDir", Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath());
+        refreshFileView();
     }
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        int id = item.getItemId();
+        switch (item.getItemId()) {
 
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
-            return true;
-        }
+            case R.id.fetch_action:
+				startDownloadVideo();
+                return true;
 
-        return super.onOptionsItemSelected(item);
-    }
-    //showing download complete message
-    private BroadcastReceiver onDownloadComplete =new BroadcastReceiver(){
-        @Override
-        public  void onReceive(Context context, Intent intent){
-            long id=intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID,-1);
-            FloatingActionButton fab2 = findViewById(R.id.fab2);
-            if(downloadId==id){
-                Toast.makeText(MainActivity.this,"Download Complete",Toast.LENGTH_SHORT).show();
-                fab2.setVisibility(View.VISIBLE);
-            }
-        }
-    };
-    WifiP2pManager.PeerListListener peerListListener=new WifiP2pManager.PeerListListener(){
-        @Override
-        public void onPeersAvailable(WifiP2pDeviceList peerl) {
-        if(!peerl.getDeviceList().equals(peers)){
-            peers.clear();
-            peers.addAll(peerl.getDeviceList());
+            case R.id.action_settings:
+                startSettings();
+                return true;
+            case R.id.action_wifidirect:
+                startWifiDirect();
+                return true;
 
-            deviceNameArray=new String[peerl.getDeviceList().size()];
-            deviceArray = new  WifiP2pDevice[peerl.getDeviceList().size()];
-            int index =0;
-            for(WifiP2pDevice device:peerl.getDeviceList()){
-                deviceNameArray[index]=device.deviceName;
-                deviceArray[index]=device;
-                index++;
-            }
-            //ArrayAdapter<String> adapter =new ArrayAdapter<String>(getApplicationContext())
+			case R.id.action_bt:
+				startActivity(new Intent(this, BluetoothActivity.class));
+				return true;
         }
-            Toast.makeText(MainActivity.this,"number of peers : "+peers.size(),Toast.LENGTH_SHORT).show();
-        }
-    };
-    @Override
-    protected void onResume() {
-        super.onResume();
-        registerReceiver(receiver, intentFilter);
+        return false;
     }
-    @Override
-    protected void onPause() {
-        super.onPause();
-        unregisterReceiver(receiver);
+
+    private void startDownloadVideo() {
+		new DownloadFileFromURL().execute("https://ia800201.us.archive.org/22/items/ksnn_compilation_master_the_internet/ksnn_compilation_master_the_internet_512kb.mp4");
+	}
+
+    private void startSettings() {
+        startActivity(new Intent(this, VideoStreamSettingsActivity.class));
     }
-    @Override
-    protected  void onDestroy(){
-        super.onDestroy();
-        unregisterReceiver((onDownloadComplete));
+
+    private void startWifiDirect() {
+        startActivity(new Intent(this, WifiDirectActivity.class));
     }
+
+    private void refreshFileView() {
+        adapter.clear();
+        File folder=new File(folderPath);
+        for (final File fileEntry : folder.listFiles()) {
+            if (! fileEntry.isDirectory())
+                adapter.add(fileEntry.getName());
+		}
+	}
+
+	private class DownloadFileFromURL extends AsyncTask<String, Integer, String> {
+		String filepath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath();
+
+		/**
+		 * Before starting background thread
+		 * */
+		@Override
+		protected void onPreExecute() {
+			super.onPreExecute();
+			Log.d(TAG, "Start downloading");
+			pDialog.show();
+		}
+
+		/**
+		 * Downloading file in background thread
+		 * */
+		@Override
+		protected String doInBackground(String... f_url) {
+			int count;
+			try {
+				filepath += File.separator + f_url[0].substring(f_url[0].lastIndexOf('/') + 1);
+				File downloadFile = new File(filepath);
+				if(downloadFile.exists()) {
+					downloadFile.delete();
+				}
+				Log.d(MainActivity.TAG, filepath);
+
+				URL url = new URL(f_url[0]);
+
+				URLConnection conection = url.openConnection();
+				conection.connect();
+				// getting file length
+				int fileLength = conection.getContentLength();
+				pDialog.setMax(fileLength/1024);
+				pDialog.setProgress(0);
+
+				// input stream to read file - with 8k buffer
+				InputStream input = new BufferedInputStream(url.openStream(), 8192);
+
+				// Output stream to write file
+				OutputStream output = new FileOutputStream(filepath);
+				byte data[] = new byte[1024];
+
+				int total = 0;
+				while ((count = input.read(data)) != -1) {
+					total += count;
+					publishProgress(total/1024);
+
+					// writing data to file
+					output.write(data, 0, count);
+				}
+
+				// flushing output
+				output.flush();
+
+				// closing streams
+				output.close();
+				input.close();
+
+			} catch (Exception e) {
+				Log.e("Error: ", e.getMessage());
+			}
+
+			return null;
+		}
+
+		@Override
+		protected void onProgressUpdate(Integer... progress) {
+			pDialog.setProgress(progress[0]);
+		}
+
+		/**
+		 * After completing background task
+		 * **/
+		@Override
+		protected void onPostExecute(String file_url) {
+			System.out.println("Downloaded");
+			Toast.makeText(MainActivity.this, "Downloaded to "+filepath, Toast.LENGTH_SHORT).show();
+
+			MainActivity.this.refreshFileView();
+			pDialog.dismiss();
+			pDialog.setMax(0);
+			pDialog.setProgress(0);
+		}
+
+	}
 }
